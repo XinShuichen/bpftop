@@ -1,0 +1,117 @@
+#!python3
+
+import argparse
+import subprocess
+import time
+import re
+import os
+
+
+def run_bpftool():
+    """
+    Run bpftool command.
+    """
+    cmd = ["bpftool", "prog", "list"]
+    output = subprocess.check_output(cmd).decode("utf-8")
+    return output
+
+
+def run_bpftool_perf_list():
+    """
+    Run bpftool perf list command and parse the output.
+    """
+    output = subprocess.check_output(
+        ["bpftool", "perf", "list"]).decode("utf-8")
+    results = {}
+    lines = output.split("\n")
+    for line in lines:
+        match = re.search(r'pid (\d+) +fd (\d+): prog_id (\d+)', line)
+        if match:
+            pid_fd = f"{match.group(1)}:{match.group(2)}"
+            prog_id = int(match.group(3))
+            results[prog_id] = pid_fd
+    return results
+
+
+def parse_output(output):
+    """
+    Parse the output from bpftool prog list command.
+    """
+    results = {}
+    lines = output.split("\n")
+    for line in lines:
+        match = re.search(
+            r'(\d+): (\S+)\s+name (\S+)\s+.* run_time_ns (\d+) run_cnt (\d+)', line)
+        if match:
+            prog_id = int(match.group(1))
+            name = match.group(3)
+            run_time_ns = int(match.group(4))
+            run_cnt = int(match.group(5))
+            results[prog_id] = (name, run_time_ns, run_cnt)
+    return results
+
+
+def compare_and_print(prev_results, curr_results, prog_id_to_pid_fd, top, sample_interval):
+    """
+    Compare previous and current results and print the top programs.
+    """
+    os.system("clear")
+    print(f"{'OWNER_PID':<15} {'PROG_ID':<12} {'NAME':<18} \t {'TIME/s':<10} \t {'CNT':<10}")
+
+    if not prev_results:
+        return
+
+    sorted_results = sorted(
+        curr_results, key=lambda x: curr_results[x][1], reverse=True)
+
+    if top != -1:
+        sorted_results = sorted_results[:top]
+
+    for i, prog_id in enumerate(sorted_results):
+        name, curr_run_time_ns, curr_run_cnt = curr_results[prog_id]
+        if prog_id in prev_results:
+            _, prev_run_time_ns, prev_run_cnt = prev_results[prog_id]
+            diff_run_time_ns = (curr_run_time_ns - prev_run_time_ns) / 1e9
+            diff_run_cnt = curr_run_cnt - prev_run_cnt
+            pid_fd = prog_id_to_pid_fd.get(prog_id, "")
+
+            print(f"{pid_fd:<15} {prog_id:<12} {name:<18} \t {diff_run_time_ns/sample_interval:.5f} s \t {diff_run_cnt/sample_interval}")
+
+
+def main(sample_interval, top):
+    """
+    Main function to monitor BPF program run time and run count.
+    """
+    prev_results = {}
+    prog_id_to_pid_fd = {}
+    os.system("clear")
+
+    try:
+        while True:
+            if len(prog_id_to_pid_fd) != len(prev_results):
+                prog_id_to_pid_fd.update(run_bpftool_perf_list())
+
+            output = run_bpftool()
+            curr_results = parse_output(output)
+
+            compare_and_print(prev_results, curr_results,
+                              prog_id_to_pid_fd, top, sample_interval)
+
+            prev_results = curr_results
+            time.sleep(sample_interval)
+
+    except KeyboardInterrupt:
+        print("\nExiting...")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="Monitor BPF program run time and run count")
+    parser.add_argument("--sample-interval", type=float,
+                        default=1.0, help="Sample interval in seconds")
+    parser.add_argument("--top", type=int, default=-1,
+                        help="Number of top programs to display")
+
+    args = parser.parse_args()
+
+    main(args.sample_interval, args.top)
