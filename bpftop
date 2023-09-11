@@ -62,7 +62,7 @@ def run_bpftool_perf_list():
     for line in lines:
         match = re.search(r'pid (\d+) +fd (\d+): prog_id (\d+)', line)
         if match:
-            pid_fd = f"{match.group(1)}:{match.group(2)}"
+            pid_fd = "{}:{}".format(match.group(1), match.group(2))
             prog_id = int(match.group(3))
             results[prog_id] = pid_fd
     return results
@@ -91,7 +91,7 @@ def compare_and_print(prev_results, curr_results, prog_id_to_pid_fd, top, sample
     Compare previous and current results and print the top programs.
     """
     os.system("clear")
-    print(f"{'OWNER_PID':<15} {'PROG_ID':<12} {'NAME':<18} \t {'TIME/s':<10} \t {'CNT':<10}")
+    print("{:<15} {:<12} {:<18} \t {:<10} \t {:<10}".format('OWNER_PID', 'PROG_ID', 'NAME', 'TIME/s', 'CNT'))
 
     if not prev_results:
         return
@@ -110,7 +110,7 @@ def compare_and_print(prev_results, curr_results, prog_id_to_pid_fd, top, sample
             diff_run_cnt = curr_run_cnt - prev_run_cnt
             pid_fd = prog_id_to_pid_fd.get(prog_id, "")
 
-            print(f"{pid_fd:<15} {prog_id:<12} {name:<18} \t {diff_run_time_ns/sample_interval:.5f} s \t {diff_run_cnt/sample_interval}")
+            print("{:<15} {:<12} {:<18} \t {:.5f} s \t {}".format(pid_fd, prog_id, name, diff_run_time_ns/sample_interval, diff_run_cnt/sample_interval))
 
 
 def main(sample_interval, top):
